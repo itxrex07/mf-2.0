@@ -100,38 +100,45 @@ def get_collection_summary(collection_name):
         return {"error": str(e)}
 
 def connect_to_collection(collection_name, target_user_id):
-    """Connect to existing collection by transferring all data"""
+    """Connect to existing collection by referencing it directly"""
     try:
         # Check if source collection exists
         if collection_name not in db.list_collection_names():
             return False, f"Collection '{collection_name}' not found"
         
-        # Ensure target collection exists
-        _ensure_user_collection_exists(target_user_id)
+        # Check if source collection has data
+        source_collection = db[collection_name]
+        doc_count = source_collection.count_documents({})
         
-        from_collection = db[collection_name]
-        to_collection = _get_user_collection(target_user_id)
-        
-        # Get all documents from source collection
-        all_docs = list(from_collection.find({}))
-        
-        if not all_docs:
+        if doc_count == 0:
             return False, "Source collection is empty"
         
-        # Clear target collection first
-        to_collection.delete_many({})
+        # Get target collection name
+        target_collection_name = f"user_{target_user_id}"
         
-        # Update metadata for target collection
-        for doc in all_docs:
-            if doc.get("type") == "metadata":
-                doc["user_id"] = target_user_id
-                doc["connected_at"] = datetime.datetime.utcnow()
-                doc["original_collection"] = collection_name
+        # If target collection exists, drop it first
+        if target_collection_name in db.list_collection_names():
+            db[target_collection_name].drop()
         
-        # Insert all documents to target collection
-        to_collection.insert_many(all_docs)
+        # Create a reference/alias by copying the collection
+        # This is much faster than transferring documents one by one
+        pipeline = [{"$out": target_collection_name}]
+        source_collection.aggregate(pipeline)
         
-        return True, f"Successfully connected to '{collection_name}' with {len(all_docs)} documents"
+        # Update metadata to reflect the connection
+        target_collection = db[target_collection_name]
+        target_collection.update_one(
+            {"type": "metadata"},
+            {"$set": {
+                "user_id": target_user_id,
+                "connected_at": datetime.datetime.utcnow(),
+                "original_collection": collection_name,
+                "connection_type": "direct_copy"
+            }},
+            upsert=True
+        )
+        
+        return True, f"Successfully connected to '{collection_name}' with {doc_count} documents"
         
     except Exception as e:
         return False, f"Connection failed: {str(e)}"
@@ -234,6 +241,72 @@ def get_current_collection_info(user_id):
             "exists": False,
             "summary": None
         }
+
+# Automation functions
+def set_automation_settings(telegram_user_id, settings):
+    """Store automation settings for a user"""
+    if not _ensure_user_collection_exists(telegram_user_id):
+        return False
+    
+    user_db = _get_user_collection(telegram_user_id)
+    user_db.update_one(
+        {"type": "automation"},
+        {"$set": {"settings": settings, "updated_at": datetime.datetime.utcnow()}},
+        upsert=True
+    )
+    return True
+
+def get_automation_settings(telegram_user_id):
+    """Get automation settings for a user"""
+    if not _ensure_user_collection_exists(telegram_user_id):
+        return None
+    
+    user_db = _get_user_collection(telegram_user_id)
+    automation_doc = user_db.find_one({"type": "automation"})
+    if automation_doc and "settings" in automation_doc:
+        return automation_doc["settings"]
+    
+    # Return default settings
+    return {
+        "enabled": False,
+        "lounge_enabled": False,
+        "lounge_message": "Hello! Nice to meet you! 😊",
+        "chatroom_enabled": False,
+        "chatroom_message": "Hi there! How are you doing? 🌟",
+        "automation_accounts": [],
+        "friend_request_interval": 24,  # hours
+        "chatroom_delay": 30,  # minutes after lounge message
+        "last_friend_request": None,
+        "lounge_check_interval": 5  # minutes
+    }
+
+def update_automation_last_request(telegram_user_id):
+    """Update last friend request time"""
+    if not _ensure_user_collection_exists(telegram_user_id):
+        return False
+    
+    user_db = _get_user_collection(telegram_user_id)
+    user_db.update_one(
+        {"type": "automation"},
+        {"$set": {"settings.last_friend_request": datetime.datetime.utcnow()}},
+        upsert=True
+    )
+    return True
+
+def get_automation_accounts(telegram_user_id):
+    """Get accounts enabled for automation"""
+    settings = get_automation_settings(telegram_user_id)
+    if not settings or not settings.get("automation_accounts"):
+        return []
+    
+    all_tokens = get_tokens(telegram_user_id)
+    automation_tokens = []
+    
+    for token_obj in all_tokens:
+        if token_obj["token"] in settings["automation_accounts"]:
+            automation_tokens.append(token_obj)
+    
+    return automation_tokens
 
 # Info card functions
 def set_info_card(telegram_user_id, token, info_text, email=None):

@@ -17,7 +17,9 @@ from db import (
     get_token_status, set_account_active, get_info_card,
     # New DB management functions
     list_all_collections, get_collection_summary, connect_to_collection,
-    rename_user_collection, transfer_to_user, get_current_collection_info
+    rename_user_collection, transfer_to_user, get_current_collection_info,
+    # Automation functions
+    get_automation_settings, set_automation_settings, get_automation_accounts
 )
 from lounge import send_lounge
 from chatroom import send_message_to_everyone
@@ -33,6 +35,7 @@ from friend_requests import (
     user_states,
     stop_markup
 )
+from automation import get_automation_manager
 
 # Tokens
 API_TOKEN = "7916536914:AAHwtvO8hfGl2U4xcfM1fAjMLNypPFEW5JQ"
@@ -50,6 +53,9 @@ TARGET_CHANNEL_ID = -1002610862940
 
 # DB operation states
 db_operation_states = {}
+
+# Automation message states
+automation_message_states = {}
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -75,24 +81,31 @@ def get_settings_menu(user_id):
         user_states[user_id] = {}
     
     spam_on = get_spam_filter(user_id)
+    automation_settings = get_automation_settings(user_id)
+    automation_on = automation_settings.get("enabled", False)
     
     buttons = [
         [
             InlineKeyboardButton(text="👤 Manage Accounts", callback_data="manage_accounts"),
-            InlineKeyboardButton(text="🎯 Filters", callback_data="show_filters")
+            InlineKeyboardButton(text="🎯 Filters", callback_data="show_filters"),
         ],
         [
             InlineKeyboardButton(
                 text=f"🛡️ Spam Filter: {'ON ✅' if spam_on else 'OFF ❌'}",
                 callback_data="toggle_spam_filter"
-            )
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"🤖 Automation: {'ON ✅' if automation_on else 'OFF ❌'}",
+                callback_data="automation_settings"
+            ),
         ],
         [
             InlineKeyboardButton(text="🗄️ DB Settings", callback_data="db_settings"),
-         #   InlineKeyboardButton(text="🆕 Sign Up", callback_data="signup_go")
+            InlineKeyboardButton(text="🆕 Sign Up", callback_data="signup_go")
         ],
         [
-         #   InlineKeyboardButton(text="🔐 Sign In", callback_data="signin_go"),
             InlineKeyboardButton(text="🔙 Back", callback_data="back_to_menu")
         ]
     ]
@@ -131,6 +144,71 @@ def get_confirmation_menu(action_type):
             InlineKeyboardButton(text="❌ Cancel", callback_data="back_to_menu")
         ]
     ])
+
+def get_automation_menu(user_id):
+    """Get automation settings menu"""
+    settings = get_automation_settings(user_id)
+    automation_manager = get_automation_manager(bot)
+    is_running = automation_manager.is_running(user_id)
+    
+    status_text = "🟢 RUNNING" if is_running else "🔴 STOPPED"
+    lounge_status = "✅" if settings.get("lounge_enabled") else "❌"
+    chatroom_status = "✅" if settings.get("chatroom_enabled") else "❌"
+    
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=f"🤖 Status: {status_text}",
+                callback_data="toggle_automation"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"💬 Lounge: {lounge_status}",
+                callback_data="toggle_lounge_automation"
+            ),
+            InlineKeyboardButton(
+                text=f"📨 Chatroom: {chatroom_status}",
+                callback_data="toggle_chatroom_automation"
+            )
+        ],
+        [
+            InlineKeyboardButton(text="💬 Set Lounge Message", callback_data="set_lounge_message"),
+            InlineKeyboardButton(text="📨 Set Chatroom Message", callback_data="set_chatroom_message")
+        ],
+        [
+            InlineKeyboardButton(text="👥 Automation Accounts", callback_data="automation_accounts"),
+        ],
+        [
+            InlineKeyboardButton(text="🔙 Back", callback_data="settings_menu")
+        ]
+    ]
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_automation_accounts_menu(user_id):
+    """Get automation accounts selection menu"""
+    all_tokens = get_tokens(user_id)
+    settings = get_automation_settings(user_id)
+    automation_accounts = settings.get("automation_accounts", [])
+    
+    buttons = []
+    for i, token_obj in enumerate(all_tokens):
+        is_enabled = token_obj["token"] in automation_accounts
+        status_emoji = "✅" if is_enabled else "❌"
+        
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{status_emoji} {token_obj['name'][:20]}",
+                callback_data=f"toggle_auto_account_{i}"
+            )
+        ])
+    
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Back", callback_data="automation_settings")
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # Enhanced mobile-friendly keyboards
 start_markup = InlineKeyboardMarkup(inline_keyboard=[
@@ -551,6 +629,38 @@ async def handle_new_token(message: types.Message):
     # Handle signup/signin messages first
     if await signup_message_handler(message):
         return
+    
+    # Handle automation message states
+    if user_id in automation_message_states:
+        state = automation_message_states[user_id]
+        
+        if state.get("type") == "lounge_message":
+            new_message = message.text.strip()
+            settings = get_automation_settings(user_id)
+            settings["lounge_message"] = new_message
+            set_automation_settings(user_id, settings)
+            
+            await message.reply(
+                f"✅ <b>Lounge Message Updated</b>\n\n"
+                f"New message: <code>{new_message}</code>",
+                parse_mode="HTML"
+            )
+            del automation_message_states[user_id]
+            return
+            
+        elif state.get("type") == "chatroom_message":
+            new_message = message.text.strip()
+            settings = get_automation_settings(user_id)
+            settings["chatroom_message"] = new_message
+            set_automation_settings(user_id, settings)
+            
+            await message.reply(
+                f"✅ <b>Chatroom Message Updated</b>\n\n"
+                f"New message: <code>{new_message}</code>",
+                parse_mode="HTML"
+            )
+            del automation_message_states[user_id]
+            return
 
     # Handle DB operation states
     if user_id in db_operation_states:
@@ -790,6 +900,153 @@ async def callback_handler(callback_query: CallbackQuery):
         )
         return
 
+    # Automation callbacks
+    elif data == "automation_settings":
+        settings = get_automation_settings(user_id)
+        automation_manager = get_automation_manager(bot)
+        is_running = automation_manager.is_running(user_id)
+        
+        status_text = "🟢 RUNNING" if is_running else "🔴 STOPPED"
+        lounge_msg = settings.get("lounge_message", "Not set")[:30] + "..."
+        chatroom_msg = settings.get("chatroom_message", "Not set")[:30] + "..."
+        auto_accounts = len(settings.get("automation_accounts", []))
+        
+        info_text = (
+            f"🤖 <b>Automation Settings</b>\n\n"
+            f"📊 <b>Status:</b> {status_text}\n"
+            f"💬 <b>Lounge Message:</b> {lounge_msg}\n"
+            f"📨 <b>Chatroom Message:</b> {chatroom_msg}\n"
+            f"👥 <b>Automation Accounts:</b> {auto_accounts}\n\n"
+            f"Configure your automation settings below:"
+        )
+        
+        await callback_query.message.edit_text(
+            info_text,
+            reply_markup=get_automation_menu(user_id),
+            parse_mode="HTML"
+        )
+        return
+
+    elif data == "toggle_automation":
+        automation_manager = get_automation_manager(bot)
+        is_running = automation_manager.is_running(user_id)
+        
+        if is_running:
+            success, msg = await automation_manager.stop_automation(user_id)
+            await callback_query.answer(f"🔴 {msg}")
+        else:
+            success, msg = await automation_manager.start_automation(user_id)
+            if success:
+                await callback_query.answer(f"🟢 {msg}")
+            else:
+                await callback_query.answer(f"❌ {msg}", show_alert=True)
+        
+        # Refresh automation menu
+        callback_query.data = "automation_settings"
+        await callback_handler(callback_query)
+        return
+
+    elif data == "toggle_lounge_automation":
+        settings = get_automation_settings(user_id)
+        settings["lounge_enabled"] = not settings.get("lounge_enabled", False)
+        set_automation_settings(user_id, settings)
+        
+        status = "enabled" if settings["lounge_enabled"] else "disabled"
+        await callback_query.answer(f"💬 Lounge automation {status}")
+        
+        # Refresh automation menu
+        callback_query.data = "automation_settings"
+        await callback_handler(callback_query)
+        return
+
+    elif data == "toggle_chatroom_automation":
+        settings = get_automation_settings(user_id)
+        settings["chatroom_enabled"] = not settings.get("chatroom_enabled", False)
+        set_automation_settings(user_id, settings)
+        
+        status = "enabled" if settings["chatroom_enabled"] else "disabled"
+        await callback_query.answer(f"📨 Chatroom automation {status}")
+        
+        # Refresh automation menu
+        callback_query.data = "automation_settings"
+        await callback_handler(callback_query)
+        return
+
+    elif data == "set_lounge_message":
+        automation_message_states[user_id] = {"type": "lounge_message"}
+        await callback_query.message.edit_text(
+            "💬 <b>Set Lounge Message</b>\n\n"
+            "Enter the message you want to send automatically in the lounge:",
+            parse_mode="HTML"
+        )
+        return
+
+    elif data == "set_chatroom_message":
+        automation_message_states[user_id] = {"type": "chatroom_message"}
+        await callback_query.message.edit_text(
+            "📨 <b>Set Chatroom Message</b>\n\n"
+            "Enter the message you want to send automatically in chatrooms:",
+            parse_mode="HTML"
+        )
+        return
+
+    elif data == "automation_accounts":
+        all_tokens = get_tokens(user_id)
+        if not all_tokens:
+            await callback_query.message.edit_text(
+                "❌ <b>No Accounts Found</b>\n\n"
+                "Add some accounts first to enable automation.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔙 Back", callback_data="automation_settings")]
+                ]),
+                parse_mode="HTML"
+            )
+            return
+        
+        settings = get_automation_settings(user_id)
+        automation_accounts = settings.get("automation_accounts", [])
+        
+        info_text = (
+            f"👥 <b>Automation Accounts</b>\n\n"
+            f"Select which accounts to use for automation:\n"
+            f"✅ = Enabled for automation\n"
+            f"❌ = Disabled\n\n"
+            f"Currently enabled: {len(automation_accounts)} accounts"
+        )
+        
+        await callback_query.message.edit_text(
+            info_text,
+            reply_markup=get_automation_accounts_menu(user_id),
+            parse_mode="HTML"
+        )
+        return
+
+    elif data.startswith("toggle_auto_account_"):
+        idx = int(data.split("_")[-1])
+        all_tokens = get_tokens(user_id)
+        
+        if 0 <= idx < len(all_tokens):
+            token = all_tokens[idx]["token"]
+            settings = get_automation_settings(user_id)
+            automation_accounts = settings.get("automation_accounts", [])
+            
+            if token in automation_accounts:
+                automation_accounts.remove(token)
+                status = "disabled"
+            else:
+                automation_accounts.append(token)
+                status = "enabled"
+            
+            settings["automation_accounts"] = automation_accounts
+            set_automation_settings(user_id, settings)
+            
+            await callback_query.answer(f"Account {status} for automation")
+            
+            # Refresh automation accounts menu
+            callback_query.data = "automation_accounts"
+            await callback_handler(callback_query)
+        return
+
     # Unsubscribe callbacks
     elif data == "unsub_current":
         await callback_query.message.edit_text(
@@ -931,10 +1188,6 @@ async def callback_handler(callback_query: CallbackQuery):
                     text="👁️", # Only emoji for view
                     callback_data=f"view_account_{i}"
                 ),
-                InlineKeyboardButton(
-                    text="🗑️", # Only emoji for delete
-                    callback_data=f"confirm_delete_{i}"
-                )
             ])
 
         buttons.append([
@@ -957,16 +1210,33 @@ async def callback_handler(callback_query: CallbackQuery):
         tokens = get_tokens(user_id)
         if 0 <= idx < len(tokens):
             token = tokens[idx]["token"]
+            account_name = tokens[idx]["name"]
             info_card = get_info_card(user_id, token)
+            
+            # Create view menu with delete button
+            view_menu = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🗑️ Delete Account", callback_data=f"confirm_delete_{idx}"),
+                    InlineKeyboardButton(text="🔙 Back", callback_data="manage_accounts")
+                ]
+            ])
+            
             if info_card:
-                await callback_query.message.answer(
-                    info_card,
+                await callback_query.message.edit_text(
+                    f"👁️ <b>Account Details</b>\n\n{info_card}",
                     parse_mode="HTML",
-                    disable_web_page_preview=True
+                    disable_web_page_preview=True,
+                    reply_markup=view_menu
                 )
-                await callback_query.answer("📱 Account info displayed below")
             else:
-                await callback_query.answer("❌ No information card found for this account.", show_alert=True)
+                await callback_query.message.edit_text(
+                    f"👁️ <b>Account Details</b>\n\n"
+                    f"<b>Account Name:</b> {account_name}\n"
+                    f"<b>Token:</b> <code>{token[:20]}...</code>\n\n"
+                    f"❌ No detailed information card available for this account.",
+                    parse_mode="HTML",
+                    reply_markup=view_menu
+                )
         else:
             await callback_query.answer("❌ Invalid account selected.")
         return
@@ -1063,9 +1333,7 @@ async def callback_handler(callback_query: CallbackQuery):
         idx = int(data.split("_")[-1])
         tokens = get_tokens(user_id)
         if 0 <= idx < len(tokens):
-            if not tokens[idx].get("active", True):
-                await callback_query.answer("❌ This account is inactive. Activate it first.", show_alert=True)
-                return
+            # Remove the active check - allow setting any account as current
             set_current_account(user_id, tokens[idx]["token"])
             await callback_query.answer(f"✅ Set {tokens[idx]['name']} as current account")
             
@@ -1241,6 +1509,8 @@ async def set_bot_commands():
 
 async def main():
     await set_bot_commands()
+    # Initialize automation manager
+    get_automation_manager(bot)
     dp.include_router(router)
     await dp.start_polling(bot)
 

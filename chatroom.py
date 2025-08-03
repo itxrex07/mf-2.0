@@ -229,9 +229,15 @@ async def send_message_to_everyone_all_tokens(
 
     async def _refresh_ui():
         last_message = ""
+        update_count = 0
         while any(status[3] == "Processing" for status in token_status.values()):
+            # Add spinner animation
+            spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+            spinner = spinners[update_count % len(spinners)]
+            update_count += 1
+            
             lines = [
-                "🔄 <b>Chatroom AIO Status</b>\n",
+                f"{spinner} <b>Chatroom AIO Status</b>\n",
                 "<pre style='background-color:#f4f4f4;padding:5px;border-radius:5px;'>Account  │Rooms │Sent │Filter │Status</pre>"
             ]
             for tid, (rooms, sent, filtered, status) in token_status.items():
@@ -251,7 +257,7 @@ async def send_message_to_everyone_all_tokens(
                 except Exception as e:
                     if "message is not modified" not in str(e):
                         logging.error(f"Error updating status: {e}")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1)  # Update every second for better visibility
 
     # Initialize token status
     for idx, token in enumerate(tokens, start=1):
