@@ -25,7 +25,7 @@ def get_total_batches(tokens: List[Dict]) -> int:
     return math.ceil(len(tokens) / ACCOUNTS_PER_BATCH) if tokens else 0
 
 async def get_batch_management_menu(user_id: int) -> InlineKeyboardMarkup:
-    """Main batch management menu that shows all batches without pagination."""
+    """Main account management menu that shows all batches without pagination."""
     tokens = await get_tokens(user_id)
     total_batches = get_total_batches(tokens)
     
@@ -87,25 +87,38 @@ async def get_batch_management_menu(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 async def get_batch_accounts_view(user_id: int, batch_number: int) -> InlineKeyboardMarkup:
-    """View individual accounts in a batch"""
+    """View individual accounts in a batch - now redirects to main.py function"""
     tokens = await get_tokens(user_id)
     batch_accounts = get_accounts_in_batch(tokens, batch_number)
+    current_token = await get_current_account(user_id)
     
     keyboard = []
     
-    for i, account in enumerate(batch_accounts):
-        status_emoji = "✅" if account.get('active', True) else "❌"
-        account_name = account.get('name', f'Account {i+1}')[:15]
+    # Calculate the global index for each account in this batch
+    start_idx = (batch_number - 1) * ACCOUNTS_PER_BATCH
+    
+    for local_idx, account in enumerate(batch_accounts):
+        global_idx = start_idx + local_idx
+        is_current = "🔹" if account['token'] == current_token else "▫️"
+        account_name = account.get('name', f'Account {local_idx+1}')[:15]
         
         keyboard.append([
             InlineKeyboardButton(
-                text=f"{status_emoji} {account_name}",
-                callback_data=f"batch_account_toggle_{batch_number}_{i}"
+                text=f"{is_current} {account_name}",
+                callback_data=f"set_account_{global_idx}"
+            ),
+            InlineKeyboardButton(
+                text="ON" if account.get('active', True) else "OFF",
+                callback_data=f"toggle_status_{global_idx}"
+            ),
+            InlineKeyboardButton(
+                text="View",
+                callback_data=f"view_account_{global_idx}_{batch_number}"
             )
         ])
     
     keyboard.append([
-        InlineKeyboardButton(text="🔙 Back", callback_data="batch_management") # Changed back button to go to main menu
+        InlineKeyboardButton(text="🔙 Back", callback_data="batch_management")
     ])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -191,7 +204,7 @@ async def handle_batch_callback(callback_query: CallbackQuery) -> bool:
     
     if data == "batch_management":
         await callback_query.message.edit_text(
-            "🗂️ <b>Batch Management</b>\n\n"
+            "🗂️ <b>Account Manager</b>\n\n"
             f"Manage your accounts in batches of {ACCOUNTS_PER_BATCH}.",
             reply_markup=await get_batch_management_menu(user_id),
             parse_mode="HTML"
@@ -199,8 +212,6 @@ async def handle_batch_callback(callback_query: CallbackQuery) -> bool:
         await callback_query.answer()
         return True
     
-    # NOTE: Obsolete handlers for pagination and the intermediate menu have been removed.
-
     elif data.startswith("batch_") and "_all_on" in data:
         batch_number = int(data.split("_")[1])
         count = await toggle_batch_status(user_id, batch_number, True)
@@ -269,7 +280,7 @@ async def handle_batch_callback(callback_query: CallbackQuery) -> bool:
         
         # Go back to main batch menu
         await callback_query.message.edit_text(
-            f"🗂️ <b>Batch Management</b>\n\n"
+            f"🗂️ <b>Account Manager</b>\n\n"
             f"Manage your accounts in batches of {ACCOUNTS_PER_BATCH}.",
             reply_markup=await get_batch_management_menu(user_id),
             parse_mode="HTML"
@@ -278,38 +289,10 @@ async def handle_batch_callback(callback_query: CallbackQuery) -> bool:
     
     elif data.startswith("batch_") and "_view" in data:
         batch_number = int(data.split("_")[1])
-        await callback_query.message.edit_text(
-            f"👥 <b>Batch {batch_number} Accounts</b>\n\n"
-            "Click an account to toggle its status:",
-            reply_markup=await get_batch_accounts_view(user_id, batch_number),
-            parse_mode="HTML"
-        )
+        # Import the function from main.py to avoid circular imports
+        from main import show_batch_accounts_menu
+        await show_batch_accounts_menu(callback_query, batch_number)
         await callback_query.answer()
-        return True
-    
-    elif data.startswith("batch_account_toggle_"):
-        parts = data.split("_")
-        batch_number = int(parts[3])
-        account_index = int(parts[4])
-        
-        tokens = await get_tokens(user_id)
-        batch_accounts = get_accounts_in_batch(tokens, batch_number)
-        
-        if account_index < len(batch_accounts):
-            account = batch_accounts[account_index]
-            current_status = account.get('active', True)
-            new_status = not current_status
-            
-            await set_account_active(user_id, account['token'], new_status)
-            
-            status_text = "ON" if new_status else "OFF"
-            await callback_query.answer(f"{account.get('name', 'Account')} turned {status_text}")
-            
-            # Refresh the view
-            await callback_query.message.edit_reply_markup(
-                reply_markup=await get_batch_accounts_view(user_id, batch_number)
-            )
-        
         return True
     
     return False
