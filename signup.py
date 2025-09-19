@@ -775,7 +775,7 @@ async def try_signin(email: str, password: str, telegram_user_id: int) -> Dict:
     headers = {'User-Agent': "okhttp/5.0.0-alpha.14", 'Content-Type': "application/json; charset=utf-8"}
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers, timeout=30) as response:
+            
                 resp_json = await response.json()
                 if response.status != 200:
                     logger.error(f"Signin failed for {email}: Status {response.status}, Error: {resp_json.get('errorMessage', 'Unknown')}")
