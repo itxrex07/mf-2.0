@@ -357,19 +357,29 @@ async def signup_callback_handler(callback: CallbackQuery) -> bool:
         state["filter_nationality"] = code if code != "all" else ""
         await show_signup_preview(callback.message, user_id, state)
     elif data == "create_accounts_confirm":
-        await callback.message.edit_text("<b>Creating Accounts</b>...", parse_mode="HTML")
+        # Show initial progress message
+        progress_msg = await callback_query.message.edit_text("<b>Creating Accounts</b>...", parse_mode="HTML")
         config = await get_signup_config(user_id) or {}
         num_accounts = state.get("num_accounts", 1)
         selected_emails = state.get("selected_emails", [])
         if not selected_emails:
-            await callback.message.edit_text(
+            await progress_msg.edit_text(
                 "<b>No Available Emails</b>\n\nNo valid email variations found. Please try a different base email in Signup Config.",
                 reply_markup=SIGNUP_MENU,
                 parse_mode="HTML"
             )
             return True
+        
         created_accounts = []
-        for email in selected_emails[:num_accounts]:
+        total_emails = min(len(selected_emails), num_accounts)
+        
+        for i, email in enumerate(selected_emails[:num_accounts], 1):
+            # Update progress
+            await progress_msg.edit_text(
+                f"<b>Creating Accounts</b>\n\nProgress: {i}/{total_emails}\nCurrent: {email}",
+                parse_mode="HTML"
+            )
+            
             acc_state = {
                 "email": email,
                 "password": config.get("password"),
@@ -380,6 +390,11 @@ async def signup_callback_handler(callback: CallbackQuery) -> bool:
                 "birth_year": config.get("birth_year", 2000),
                 "nationality": config.get("nationality", "US")
             }
+            
+            # Add delay between account creations to avoid rate limiting
+            if i > 1:
+                await asyncio.sleep(2)
+            
             res = await try_signup(acc_state, user_id)
             if res.get("user", {}).get("_id"):
                 created_accounts.append({
@@ -387,6 +402,7 @@ async def signup_callback_handler(callback: CallbackQuery) -> bool:
                     "name": acc_state["name"],
                     "password": config.get("password")
                 })
+        
         state["created_accounts"] = created_accounts
         state["verified_accounts"] = []
         state["pending_accounts"] = created_accounts.copy()
@@ -398,7 +414,7 @@ async def signup_callback_handler(callback: CallbackQuery) -> bool:
                 f"• {a['name']} - <code>{a['email']}</code>" for a in created_accounts
             ])
         result_text += "\n\nPlease verify all emails, then click the button below."
-        await callback.message.edit_text(
+        await progress_msg.edit_text(
             result_text,
             reply_markup=VERIFY_ALL_BUTTON,
             parse_mode="HTML"
@@ -406,37 +422,78 @@ async def signup_callback_handler(callback: CallbackQuery) -> bool:
     elif data == "verify_accounts" or data == "retry_pending":
         pending = state.get("pending_accounts", [])
         if not pending:
-            await callback.message.edit_text(
+            await callback_query.message.edit_text(
                 "<b>No Pending Accounts</b>\n\nAll accounts are either verified or none were created.",
                 reply_markup=SIGNUP_MENU,
                 parse_mode="HTML"
             )
             return True
-        await callback.message.edit_text("<b>Verifying Accounts</b>...", parse_mode="HTML")
+        
+        progress_msg = await callback_query.message.edit_text("<b>Verifying Accounts</b>...", parse_mode="HTML")
         verified = state.get("verified_accounts", [])
         new_pending = []
         filter_nat = state.get("filter_nationality", "")
-        for acc in pending:
-            res = await try_signin(acc["email"], acc["password"], user_id)
-            if res.get("accessToken") and res.get("user"):
-                token = res["accessToken"]
-                await set_token(user_id, token, acc["name"], acc["email"])
+        
+        # Process accounts in smaller batches to avoid rate limiting
+        batch_size = 5
+        total_pending = len(pending)
+        
+        for batch_start in range(0, len(pending), batch_size):
+            batch_end = min(batch_start + batch_size, len(pending))
+            current_batch = pending[batch_start:batch_end]
+            
+            # Update progress
+            await progress_msg.edit_text(
+                f"<b>Verifying Accounts</b>\n\nProgress: {batch_start + 1}-{batch_end}/{total_pending}",
+                parse_mode="HTML"
+            )
+            
+            for i, acc in enumerate(current_batch):
+                # Add delay between signin attempts
+                if batch_start > 0 or i > 0:
+                    await asyncio.sleep(3)  # 3 second delay between signin attempts
                 
-                # Auto-assign to batch
-                batch_number = await auto_assign_new_account_to_batch(user_id, token)
-                
-                await set_user_filters(user_id, token, {"filterNationalityCode": filter_nat})
-                res["user"].update({
-                    "email": acc["email"],
-                    "password": acc["password"],
-                    "token": token
-                })
-                await set_info_card(user_id, token, format_user_with_nationality(res["user"]), acc["email"])
-                verified.append(acc)
-            else:
-                new_pending.append(acc)
+                try:
+                    res = await try_signin(acc["email"], acc["password"], user_id)
+                    if res.get("accessToken") and res.get("user"):
+                        token = res["accessToken"]
+                        await set_token(user_id, token, acc["name"], acc["email"])
+                        
+                        # Auto-assign to batch
+                        batch_number = await auto_assign_new_account_to_batch(user_id, token)
+                        
+                        await set_user_filters(user_id, token, {"filterNationalityCode": filter_nat})
+                        res["user"].update({
+                            "email": acc["email"],
+                            "password": acc["password"],
+                            "token": token
+                        })
+                        await set_info_card(user_id, token, format_user_with_nationality(res["user"]), acc["email"])
+                        verified.append(acc)
+                    else:
+                        error_msg = res.get("errorMessage", "")
+                        if "too frequent" in error_msg.lower():
+                            # If rate limited, add all remaining accounts back to pending
+                            new_pending.extend(current_batch[i:])
+                            new_pending.extend(pending[batch_end:])
+                            break
+                        else:
+                            new_pending.append(acc)
+                except Exception as e:
+                    logger.error(f"Error during signin for {acc['email']}: {e}")
+                    new_pending.append(acc)
+            
+            # If we hit rate limiting, break out of the batch loop
+            if any("too frequent" in res.get("errorMessage", "").lower() for res in [await try_signin(acc["email"], acc["password"], user_id) for acc in current_batch] if res):
+                break
+            
+            # Add delay between batches
+            if batch_end < len(pending):
+                await asyncio.sleep(5)  # 5 second delay between batches
+        
         state["verified_accounts"] = verified
         state["pending_accounts"] = new_pending
+        
         if not new_pending:
             result_text = (
                 f"<b>Verification Results</b>\n\n"
@@ -447,12 +504,21 @@ async def signup_callback_handler(callback: CallbackQuery) -> bool:
         else:
             result_text = (
                 f"<b>Verification Results</b>\n\n"
-                f"<b>Pending Verification:</b> {len(new_pending)} account{'s' if len(new_pending) != 1 else ''}\n\n"
-                "<b>Pending Accounts:</b>\n" + '\n'.join([f"• <code>{a['email']}</code>" for a in new_pending]) +
-                "\n\nPlease verify these emails, then retry."
+                f"<b>Verified:</b> {len(verified)} account{'s' if len(verified) != 1 else ''}\n"
+                f"<b>Pending:</b> {len(new_pending)} account{'s' if len(new_pending) != 1 else ''}\n\n"
             )
+            
+            # Check if rate limited
+            if any("too frequent" in str(acc) for acc in new_pending):
+                result_text += "<b>⚠️ Rate Limited</b>\nPlease wait 5-10 minutes before retrying verification.\n\n"
+            
+            result_text += "<b>Pending Accounts:</b>\n" + '\n'.join([f"• <code>{a['email']}</code>" for a in new_pending[:10]])
+            if len(new_pending) > 10:
+                result_text += f"\n... and {len(new_pending) - 10} more"
+            result_text += "\n\nPlease verify these emails, then retry."
             reply_markup = RETRY_VERIFY_BUTTON
-        await callback.message.edit_text(
+        
+        await progress_msg.edit_text(
             result_text,
             reply_markup=reply_markup,
             parse_mode="HTML"
@@ -709,7 +775,7 @@ async def try_signin(email: str, password: str, telegram_user_id: int) -> Dict:
     headers = {'User-Agent': "okhttp/5.0.0-alpha.14", 'Content-Type': "application/json; charset=utf-8"}
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers) as response:
+            async with session.post(url, json=payload, headers=headers, timeout=30) as response:
                 resp_json = await response.json()
                 if response.status != 200:
                     logger.error(f"Signin failed for {email}: Status {response.status}, Error: {resp_json.get('errorMessage', 'Unknown')}")
@@ -746,5 +812,5 @@ async def store_token_and_show_card(msg_obj: Message, login_result: Dict, creds:
         await msg_obj.edit_text(
             f"<b>Error</b>\n\nFailed to save account: {error_msg}",
             parse_mode="HTML"
-        )
+            async with session.post(url, json=payload, headers=headers, timeout=30) as response:
  

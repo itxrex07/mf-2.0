@@ -255,6 +255,16 @@ async def bulk_add_sent_ids(telegram_user_id, category, target_ids):
     await _ensure_user_collection_exists(telegram_user_id)
     await _get_user_collection(telegram_user_id).update_one({"type": "sent_records"}, {"$addToSet": {f"data.{category}": {"$each": list(target_ids)}}}, upsert=True)
 
+async def clear_spam_records(telegram_user_id: int, category: str):
+    """Clear all spam records for a specific category"""
+    await _ensure_user_collection_exists(telegram_user_id)
+    user_db = _get_user_collection(telegram_user_id)
+    await user_db.update_one(
+        {"type": "sent_records"}, 
+        {"$unset": {f"data.{category}": ""}}, 
+        upsert=True
+    )
+
 async def has_valid_access(telegram_user_id):
     collection_name = f"user_{telegram_user_id}"
     if collection_name not in await db.list_collection_names(): return False

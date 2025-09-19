@@ -464,13 +464,8 @@ async def callback_handler(callback_query: CallbackQuery):
         await callback_query.message.edit_text("<b>Spam Filter Settings</b>", reply_markup=await get_spam_filter_menu(user_id), parse_mode="HTML")
     elif data.startswith("clear_spam_"):
         filter_type = data.split("_")[-1]
-        # Clear the spam records for this filter type
-        user_db = _get_user_collection(user_id)
-        await user_db.update_one(
-            {"type": "sent_records"}, 
-            {"$unset": {f"data.{filter_type}": ""}}, 
-            upsert=True
-        )
+        from db import clear_spam_records
+        await clear_spam_records(user_id, filter_type)
         await callback_query.answer(f"Cleared {filter_type} records!")
         await callback_query.message.edit_text("<b>Spam Filter Settings</b>", reply_markup=await get_spam_filter_menu(user_id), parse_mode="HTML")
     elif data.startswith("toggle_spam_"):
