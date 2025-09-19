@@ -1,4 +1,4 @@
-
+import asyncio
 import aiohttp
 import json
 import random
@@ -358,7 +358,7 @@ async def signup_callback_handler(callback: CallbackQuery) -> bool:
         await show_signup_preview(callback.message, user_id, state)
     elif data == "create_accounts_confirm":
         # Show initial progress message
-        progress_msg = await callback_query.message.edit_text("<b>Creating Accounts</b>...", parse_mode="HTML")
+        progress_msg = await callback.message.edit_text("<b>Creating Accounts</b>...", parse_mode="HTML")
         config = await get_signup_config(user_id) or {}
         num_accounts = state.get("num_accounts", 1)
         selected_emails = state.get("selected_emails", [])
@@ -422,14 +422,14 @@ async def signup_callback_handler(callback: CallbackQuery) -> bool:
     elif data == "verify_accounts" or data == "retry_pending":
         pending = state.get("pending_accounts", [])
         if not pending:
-            await callback_query.message.edit_text(
+            await callback.message.edit_text(
                 "<b>No Pending Accounts</b>\n\nAll accounts are either verified or none were created.",
                 reply_markup=SIGNUP_MENU,
                 parse_mode="HTML"
             )
             return True
         
-        progress_msg = await callback_query.message.edit_text("<b>Verifying Accounts</b>...", parse_mode="HTML")
+        progress_msg = await callback.message.edit_text("<b>Verifying Accounts</b>...", parse_mode="HTML")
         verified = state.get("verified_accounts", [])
         new_pending = []
         filter_nat = state.get("filter_nationality", "")
@@ -775,7 +775,7 @@ async def try_signin(email: str, password: str, telegram_user_id: int) -> Dict:
     headers = {'User-Agent': "okhttp/5.0.0-alpha.14", 'Content-Type': "application/json; charset=utf-8"}
     try:
         async with aiohttp.ClientSession() as session:
-            
+            async with session.post(url, json=payload, headers=headers, timeout=30) as response:
                 resp_json = await response.json()
                 if response.status != 200:
                     logger.error(f"Signin failed for {email}: Status {response.status}, Error: {resp_json.get('errorMessage', 'Unknown')}")
@@ -812,5 +812,4 @@ async def store_token_and_show_card(msg_obj: Message, login_result: Dict, creds:
         await msg_obj.edit_text(
             f"<b>Error</b>\n\nFailed to save account: {error_msg}",
             parse_mode="HTML"
-            async with session.post(url, json=payload, headers=headers, timeout=30) as response:
- 
+        )
