@@ -44,7 +44,7 @@ async def fetch_users(session, token, user_id):
     device_info = await get_or_create_device_info_for_token(user_id, token)
     
     base_headers = {
-        'User-Agent': "okhttp/4.12.0",
+        'User-Agent': "okhttp/5.1.0",
         'meeff-access-token': token
     }
     headers = get_headers_with_device_info(base_headers, device_info)
