@@ -290,10 +290,13 @@ async def add_person_command(message: Message):
 
 @router.message()
 async def handle_new_token(message: Message):
-    if message.text and message.text.startswith("/"): return
+    if message.text and message.text.startswith("/"):
+        return
     user_id = message.from_user.id
-    if message.from_user.is_bot: return
-    if await signup_message_handler(message): return
+    if message.from_user.is_bot:
+        return
+    if await signup_message_handler(message):
+        return
 
     state = db_operation_states.get(user_id)
     if state:
@@ -306,36 +309,32 @@ async def handle_new_token(message: Message):
         elif operation == "rename_db":
             success, result_msg = await rename_user_collection(user_id, text)
         elif operation == "transfer_db":
-            try: success, result_msg = await transfer_to_user(user_id, int(text))
-            except ValueError: result_msg = "Invalid user ID."
-        await msg.edit_text(f"<b>{'Success' if success else 'Failed'}</b>: {result_msg}", parse_mode="HTML")
+            try:
+                success, result_msg = await transfer_to_user(user_id, int(text))
+            except ValueError:
+                result_msg = "Invalid user ID."
+        await msg.edit_text(
+            f"<b>{'Success' if success else 'Failed'}</b>: {result_msg}",
+            parse_mode="HTML"
+        )
         db_operation_states.pop(user_id, None)
         return
 
-    if not has_valid_access(user_id): return await message.reply("You are not authorized.")
+    if not has_valid_access(user_id):
+        return await message.reply("You are not authorized.")
 
     if message.text:
         token_data = message.text.strip().split(" ", 1)
         token = token_data[0]
-        if len(token) < 100: return await message.reply("Invalid token format.")
-
-        verification_msg = await message.reply("<b>Verifying Token...</b>", parse_mode="HTML")
-        device_info = await get_or_create_device_info_for_token(user_id, token)
-        headers = get_headers_with_device_info({'User-Agent': "okhttp/5.0.0-alpha.14", 'meeff-access-token': token}, device_info)
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.get("https://api.meeff.com/facetalk/vibemeet/history/count/v1", params={'locale': "en"}, headers=headers) as resp:
-                    if (await resp.json(content_type=None)).get("errorCode") == "AuthRequired":
-                        return await verification_msg.edit_text("<b>Invalid Token</b>.", parse_mode="HTML")
-            except Exception as e:
-                logger.error(f"Error verifying token: {e}")
-                return await verification_msg.edit_text("<b>Verification Error</b>.", parse_mode="HTML")
+        if len(token) < 100:
+            return await message.reply("Invalid token format.")
 
         account_name = token_data[1] if len(token_data) > 1 else f"Account {len(await get_tokens(user_id)) + 1}"
         await set_token(user_id, token, account_name)
-        await verification_msg.edit_text(f"<b>Token Verified</b> and saved as '<code>{html.escape(account_name)}</code>'.", parse_mode="HTML")
-
-
+        await message.reply(
+            f"<b>Token saved</b> as '<code>{html.escape(account_name)}</code>'.",
+            parse_mode="HTML"
+        )
 
 async def show_manage_accounts_menu(callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
