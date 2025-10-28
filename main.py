@@ -265,15 +265,19 @@ async def add_person_command(message: Message):
     if not has_valid_access(user_id): return await message.reply("You are not authorized.")
     args = message.text.strip().split()
     if len(args) < 2: return await message.reply("Usage: /add <person_id>")
-    
+
     token = await get_current_account(user_id)
     if not token: return await message.reply("No active account found.")
 
     person_id = args[1]
     url = f"https://api.meeff.com/user/undoableAnswer/v5/?userId={person_id}&isOkay=1"
     device_info = await get_or_create_device_info_for_token(user_id, token)
-    headers = get_headers_with_device_info({"meeff-access-token": token}, device_info)
-    
+    base_headers = {
+        "User-Agent": "okhttp/5.1.0",
+        "meeff-access-token": token
+    }
+    headers = get_headers_with_device_info(base_headers, device_info)
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as response:
