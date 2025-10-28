@@ -191,7 +191,7 @@ async def check_email_exists(email: str) -> Tuple[bool, str]:
     url = "https://api.meeff.com/user/checkEmail/v1"
     payload = {"email": email, "locale": "en"}
     headers = {
-        'User-Agent': "okhttp/5.0.0-alpha.14",
+        'User-Agent': "okhttp/5.1.0",
         'Accept-Encoding': "gzip",
         'Content-Type': "application/json; charset=utf-8"
     }
@@ -765,7 +765,7 @@ async def meeff_upload_image(img_bytes: bytes) -> Optional[str]:
     url = "https://api.meeff.com/api/upload/v1"
     payload = {"category": "profile", "count": 1, "locale": "en"}
     headers = {
-        'User-Agent': "okhttp/5.0.0-alpha.14",
+        'User-Agent': "okhttp/5.1.0",
         'Accept-Encoding': "gzip",
         'Content-Type': "application/json; charset=utf-8"
     }
@@ -829,7 +829,7 @@ async def try_signup(state: Dict, telegram_user_id: int) -> Dict:
         "interest": "IS000001,IS000002,IS000003,IS000004",
     }
     payload = get_api_payload_with_device_info(base_payload, device_info)
-    headers = {'User-Agent': "okhttp/5.0.0-alpha.14", 'Content-Type': "application/json; charset=utf-8"}
+    headers = {'User-Agent': "okhttp/5.1.0", 'Content-Type': "application/json; charset=utf-8"}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=headers) as response:
@@ -862,7 +862,7 @@ async def try_signin(email: str, password: str, telegram_user_id: int) -> Dict:
     logger.warning(f"SIGN IN using Device ID: {device_info.get('device_unique_id')} for email {email}")
     base_payload = {"provider": "email", "providerId": email, "providerToken": password, "locale": "en"}
     payload = get_api_payload_with_device_info(base_payload, device_info)
-    headers = {'User-Agent': "okhttp/5.0.0-alpha.14", 'Content-Type': "application/json; charset=utf-8"}
+    headers = {'User-Agent': "okhttp/5.1.0", 'Content-Type': "application/json; charset=utf-8"}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=headers) as response:
