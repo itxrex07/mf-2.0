@@ -290,13 +290,10 @@ async def add_person_command(message: Message):
 
 @router.message()
 async def handle_new_token(message: Message):
-    if message.text and message.text.startswith("/"): 
-        return
+    if message.text and message.text.startswith("/"): return
     user_id = message.from_user.id
-    if message.from_user.is_bot: 
-        return
-    if await signup_message_handler(message): 
-        return
+    if message.from_user.is_bot: return
+    if await signup_message_handler(message): return
 
     state = db_operation_states.get(user_id)
     if state:
@@ -309,65 +306,35 @@ async def handle_new_token(message: Message):
         elif operation == "rename_db":
             success, result_msg = await rename_user_collection(user_id, text)
         elif operation == "transfer_db":
-            try:
-                success, result_msg = await transfer_to_user(user_id, int(text))
-            except ValueError:
-                result_msg = "Invalid user ID."
+            try: success, result_msg = await transfer_to_user(user_id, int(text))
+            except ValueError: result_msg = "Invalid user ID."
         await msg.edit_text(f"<b>{'Success' if success else 'Failed'}</b>: {result_msg}", parse_mode="HTML")
         db_operation_states.pop(user_id, None)
         return
 
-    if not has_valid_access(user_id): 
-        return await message.reply("You are not authorized.")
+    if not has_valid_access(user_id): return await message.reply("You are not authorized.")
 
     if message.text:
         token_data = message.text.strip().split(" ", 1)
         token = token_data[0]
-        if len(token) < 100: 
-            return await message.reply("Invalid token format.")
+        if len(token) < 100: return await message.reply("Invalid token format.")
 
         verification_msg = await message.reply("<b>Verifying Token...</b>", parse_mode="HTML")
         device_info = await get_or_create_device_info_for_token(user_id, token)
-        headers = get_headers_with_device_info({
-            'User-Agent': "okhttp/5.1.0",
-            'meeff-access-token': token
-        }, device_info)
-
-        # ✅ New Verification Endpoint
-        verify_url = "https://api.meeff.com/user/info/v1"
-        params = {"userId": "68ffa4ea05647b000113b2dd", "locale": "en"}  # can be your own id or test id
-
+        headers = get_headers_with_device_info({'User-Agent': "okhttp/5.0.0-alpha.14", 'meeff-access-token': token}, device_info)
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(verify_url, params=params, headers=headers) as resp:
-                    data = await resp.json(content_type=None)
-                    if data.get("errorCode") == "AuthRequired" or resp.status != 200:
+                async with session.get("https://api.meeff.com/facetalk/vibemeet/history/count/v1", params={'locale': "en"}, headers=headers) as resp:
+                    if (await resp.json(content_type=None)).get("errorCode") == "AuthRequired":
                         return await verification_msg.edit_text("<b>Invalid Token</b>.", parse_mode="HTML")
-
-                    # ✅ Extract user info if valid
-                    user_info = data.get("user", {})
-                    name = user_info.get("name", "Unknown")
-                    email = user_info.get("email", "")
-                    nationality = user_info.get("nationalityCode", "")
-                    desc = user_info.get("description", "")
-                    photo = (user_info.get("photoUrls") or [""])[0]
-
-                    account_name = token_data[1] if len(token_data) > 1 else name or f"Account {len(await get_tokens(user_id)) + 1}"
-                    await set_token(user_id, token, account_name)
-
-                    info_text = (
-                        f"<b>✅ Token Verified</b>\n\n"
-                        f"<b>Name:</b> {html.escape(name)}\n"
-                        f"<b>Email:</b> {email}\n"
-                        f"<b>Country:</b> {nationality}\n"
-                        f"<b>Description:</b> {html.escape(desc)}"
-                    )
-
-                    await verification_msg.edit_text(info_text, parse_mode="HTML")
-
             except Exception as e:
                 logger.error(f"Error verifying token: {e}")
                 return await verification_msg.edit_text("<b>Verification Error</b>.", parse_mode="HTML")
+
+        account_name = token_data[1] if len(token_data) > 1 else f"Account {len(await get_tokens(user_id)) + 1}"
+        await set_token(user_id, token, account_name)
+        await verification_msg.edit_text(f"<b>Token Verified</b> and saved as '<code>{html.escape(account_name)}</code>'.", parse_mode="HTML")
+
 
 
 async def show_manage_accounts_menu(callback_query: CallbackQuery):
