@@ -21,7 +21,7 @@ def generate_push_token() -> str:
 DEVICE_MODELS = ["iPhone16,2", "iPhone16,1", "iPhone15,5", "iPhone15,4", "iPhone15,3", "iPhone15,2", "iPhone14,8", "iPhone14,7", "iPhone14,6", "iPhone14,5", "iPhone14,4", "iPhone14,3", "iPhone14,2", "iPhone13,4", "iPhone13,3", "iPhone13,2", "iPhone13,1"]
 DEVICE_NAMES = ["iPhone 15 Pro Max", "iPhone 15 Pro", "iPhone 15 Plus", "iPhone 15", "iPhone 14 Pro Max", "iPhone 14 Pro", "iPhone 14 Plus", "iPhone 14", "iPhone 13 Pro Max", "iPhone 13 Pro", "iPhone 13 mini", "iPhone 13"]
 IOS_VERSIONS = ["iOS 17.6.1", "iOS 17.5.1", "iOS 17.4.1", "iOS 17.3.1", "iOS 17.2.1", "iOS 17.1.2", "iOS 17.0.3", "iOS 16.7.8"]
-APP_VERSIONS = ["6.6.2", "6.6.1", "6.6.0", "6.5.9", "6.5.8"]
+APP_VERSIONS = ["6.7.1"]
 
 def generate_device_info() -> Dict[str, str]:
     """Generate complete device information."""
